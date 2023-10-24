@@ -1,0 +1,94 @@
+version: "3.8"
+
+services:
+
+  node-exporter:
+    image: prom/node-exporter:v1.6.1 #v1.1.2
+    container_name: node-exporter
+    restart: always
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command: 
+      - '--path.procfs=/host/proc' 
+      - '--path.sysfs=/host/sys'
+      - --collector.filesystem.ignored-mount-points
+      - "^/(sys|proc|dev|host|etc|rootfs/var/lib/docker/containers|rootfs/var/lib/docker/overlay2|rootfs/run/docker/netns|rootfs/var/lib/docker/aufs)($$|/)"
+    networks:
+      - vpcbr
+    ports:
+      - 9100:9100
+    # logging:
+    #   driver: loki
+    #   options:
+    #     loki-url: 'http://loki:3100/api/prom/push'
+
+  prometheus:
+    image: prom/prometheus:v2.47.2
+    container_name: prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus.yml
+    command:
+      - '--config.file=/etc/prometheus.yml'
+    networks:
+      - vpcbr
+    ports:
+      - "9092:9090"
+    # logging:
+    #   driver: loki
+    #   options:
+    #     loki-url: 'http://loki:3100/api/prom/push'
+
+  grafana:
+    image: grafana/grafana:10.1.5
+    container_name: grafana
+    restart: always
+    volumes:
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+    networks:
+      - vpcbr
+    ports:
+      - "3000:3000"
+    # logging:
+    #   driver: loki
+    #   options:
+    #     loki-url: 'http://loki:3100/api/prom/push'
+
+  cadvisor:
+    # image: gcr.io/cadvisor/cadvisor:latest #// non arm64
+    # image: raymondmm/cadvisor              #// arm64
+    image: gcr.io/cadvisor/cadvisor:v0.47.2  #// don't use tag latest
+    platform: linux/aarch64
+    container_name: cadvisor
+    restart: on-failure
+    privileged: true
+    ports:
+      - 8080:8080
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+      - /dev/disk/:/dev/disk:ro
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"  # Add this line
+    devices:
+      #// for oom error https://github.com/google/cadvisor/issues/2150
+      - /dev/kmsg:/dev/kmsg
+    networks:
+      - vpcbr
+
+networks:
+  vpcbr:
+    driver: bridge
+    ipam:
+      config:
+      - subnet: 10.5.0.0/16   # Replace <network_subnet> with your actual subnet
